@@ -320,7 +320,8 @@ def fast_radon_transform(array, angles, use_ramp=False):
         freqs = np.abs(np.pi * y_idx)
         lines_f *= freqs[:, np.newaxis]
 
-    projections = np.real(xp.asnumpy(fft.centered_ifft(xp.asarray(lines_f), axis=0)))
+    # projections = np.real(xp.asnumpy(fft.centered_ifft(xp.asarray(lines_f), axis=0)))  # EV: this is slow on my machine
+    projections = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(lines_f, axes=0), axis=0), axes=0).real
 
     return projections
 
