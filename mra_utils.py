@@ -12,11 +12,12 @@
 
 import mrcfile
 import numpy as np
+import finufft
 import matplotlib.pyplot as plt
 from scipy import ndimage as ndi
 
-from aspire.nufft import nufft
-from aspire.numeric import fft, xp
+# from aspire.nufft import nufft
+# from aspire.numeric import fft, xp
 
 
 def log_abs(array):
@@ -294,36 +295,74 @@ def radon_transform_from_real_rotation(array, angles):
     return projections
 
 
-def fast_radon_transform(array, angles, use_ramp=False):
+# def fast_radon_transform(array, angles, use_ramp=False):
 
-    angles = np.array(angles).flatten()
-    img_size = array.shape[1]
+#     angles = np.array(angles).flatten()
+#     img_size = array.shape[1]
+#     rads = angles / 180 * np.pi
+#     # y_idx = np.polynomial.chebyshev.chebpts1(img_size)  # use Cheb pts , is this right ?
+#     y_idx = np.arange(-img_size / 2, img_size / 2) / img_size * 2
+#     x_theta = y_idx[:, np.newaxis] * np.sin(rads)[np.newaxis, :]
+#     y_theta = y_idx[:, np.newaxis] * np.cos(rads)[np.newaxis, :]
+
+#     pts = np.pi * np.vstack(
+#         [
+#             x_theta.flatten(),
+#             y_theta.flatten(),
+#         ]
+#     )
+#     pts = pts.astype(np.float32)
+
+#     lines_f = nufft(array, pts).reshape((img_size, -1))
+
+#     if img_size % 2 == 0:
+#         lines_f[0, :] = 0
+
+#     # if use_ramp:
+#     #     freqs = np.abs(np.pi * y_idx)
+#     #     lines_f *= freqs[:, np.newaxis]
+
+#     # projections = np.real(xp.asnumpy(fft.centered_ifft(xp.asarray(lines_f), axis=0)))  # EV: this is slow on my machine
+#     projections = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(lines_f, axes=0), axis=0), axes=0).real
+
+#     return projections
+
+
+def fast_radon_transform(images, angles, nufft_type=2, n_trans=1, eps=1e-8):
+    """compute fast radon transform for images using nufft"""
+    
+    # # for now assume that input is a pair of stacked images to be aligned
+    # # need to have check for odd/even shape images
+    # # should we use chebyshev points
+    
+    nz, ny, nx = images.shape
+    
+    images = images.astype(np.complex128)
+    
     rads = angles / 180 * np.pi
-    y_idx = np.arange(-img_size / 2, img_size / 2) / img_size * 2
+    n_lines = len(rads)
+
+    y_idx = np.arange(-ny / 2, ny / 2) / ny * 2
+    # y_idx = np.polynomial.chebyshev.chebpts1(ny)
+
     x_theta = y_idx[:, np.newaxis] * np.sin(rads)[np.newaxis, :]
+    x_theta = np.pi * x_theta.flatten()
+    
     y_theta = y_idx[:, np.newaxis] * np.cos(rads)[np.newaxis, :]
-
-    pts = np.pi * np.vstack(
-        [
-            x_theta.flatten(),
-            y_theta.flatten(),
-        ]
-    )
-    pts = pts.astype(np.float32)
-
-    lines_f = nufft(array, pts).reshape((img_size, -1))
-
-    if img_size % 2 == 0:
-        lines_f[0, :] = 0
-
-    if use_ramp:
-        freqs = np.abs(np.pi * y_idx)
-        lines_f *= freqs[:, np.newaxis]
-
-    # projections = np.real(xp.asnumpy(fft.centered_ifft(xp.asarray(lines_f), axis=0)))  # EV: this is slow on my machine
-    projections = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(lines_f, axes=0), axis=0), axes=0).real
-
-    return projections
+    y_theta = np.pi * y_theta.flatten()
+    
+    plan = finufft.Plan(nufft_type, (nx, ny), n_trans, eps)
+    plan.setpts(x_theta, y_theta)
+    
+    img_rts = []
+    
+    for img in images:
+        s = plan.execute(img)
+        s = s.reshape(ny, n_lines)
+        p = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(s, axes=0), axis=0), axes=0).real
+        img_rts.append(p)
+        
+    return img_rts
 
 
 def circulant_matvec(x, c):
@@ -415,3 +454,39 @@ def two_plot(image_1, image_2, size=5, color='viridis'):
 
 #     plt.tight_layout(w_pad=0.1)
 #     plt.show()
+
+
+
+### ========================================================
+
+# def fast_radon_transform(array, angles, use_ramp=False):
+
+#     angles = np.array(angles).flatten()
+#     img_size = array.shape[1]
+#     rads = angles / 180 * np.pi
+#     y_idx = np.polynomial.chebyshev.chebpts1(img_size)  # use Cheb pts ?
+#     # y_idx = np.arange(-img_size / 2, img_size / 2) / img_size * 2
+#     x_theta = y_idx[:, np.newaxis] * np.sin(rads)[np.newaxis, :]
+#     y_theta = y_idx[:, np.newaxis] * np.cos(rads)[np.newaxis, :]
+
+#     pts = np.pi * np.vstack(
+#         [
+#             x_theta.flatten(),
+#             y_theta.flatten(),
+#         ]
+#     )
+#     pts = pts.astype(np.float32)
+
+#     lines_f = nufft(array, pts).reshape((img_size, -1))
+
+#     if img_size % 2 == 0:
+#         lines_f[0, :] = 0
+
+#     # if use_ramp:
+#     #     freqs = np.abs(np.pi * y_idx)
+#     #     lines_f *= freqs[:, np.newaxis]
+
+#     # projections = np.real(xp.asnumpy(fft.centered_ifft(xp.asarray(lines_f), axis=0)))  # EV: this is slow on my machine
+#     projections = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(lines_f, axes=0), axis=0), axes=0).real
+
+#     return projections
