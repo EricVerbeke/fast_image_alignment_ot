@@ -25,6 +25,8 @@ class Transform:
         
         self.images = images.astype(np.complex128) # required type for nufft
         self.apply_ramp = apply_ramp
+        self.angles = angles
+        self.n_points = n_points
         
         shape = self.images.shape
         self.N = shape[0]
@@ -32,10 +34,12 @@ class Transform:
         self.nx = shape[2]
 
         # If angles and n_points not set, scale according to image size
-        if not angles:
+        if self.angles is None:
             self.angles = np.linspace(0, 360, self.ny, endpoint=False)
-        if not n_points:
+        if self.n_points is None:
             self.n_points = self.ny
+            
+        self.n_theta = self.angles.size
     
     
     def set_radial_2d_nufft_plan(self, nufft_type=2, eps=1e-8):
@@ -127,7 +131,7 @@ class Transform:
         
         cdf_scale = images_cdf[:, -1, :]  # last value of each cdf
         # cdf_scale = np.where(cdf_scale<1e-8, 1e-8, cdf_scale)  # catch small values
-        cdf_scale = cdf_scale.reshape(self.N, 1, self.nx)
+        cdf_scale = cdf_scale.reshape(self.N, 1, self.n_theta)
         images_cdf = images_cdf / cdf_scale
         
         return images_cdf       
