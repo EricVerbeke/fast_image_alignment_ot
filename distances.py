@@ -1,10 +1,12 @@
-import utils
 import numpy as np
 
 import ftk  # PUT FTK HERE FOR NOW
 import pywt  # PUT WEMD HERE FOR NOW
 import ot  # PUT OT HERE FOR NOW
 
+### my lib
+
+import utils
 
 
 def circulant_matvec(v, c):
@@ -36,6 +38,9 @@ def signed_rotational_distances(image1_pos, image2_pos, image1_neg, image2_neg, 
     
     dists_pos = rotational_distances(image1_pos, image2_pos, n_points)
     dists_neg = rotational_distances(image1_neg, image2_neg, n_points)
+    
+    # dists_pos = rotational_distances(image1_pos, image2_neg, n_points)
+    # dists_neg = rotational_distances(image1_neg, image2_pos, n_points)
     
     dists = dists_pos + dists_neg
     
@@ -94,7 +99,7 @@ def signed_pairwise_rotational_distances(images_pos, images_neg, n_points):
 def real_space_rotational_distance(image1, image2, angles):
     ### Need to make this compatible with other distance functions
     ### to be used in the alignment class as distance 'type'
-    ### rename this as brute force
+    ### this is the "brute force" rotation approach
     
     dists = []
     
@@ -103,6 +108,18 @@ def real_space_rotational_distance(image1, image2, angles):
         dists.append(np.linalg.norm(image1 - image2_rot)**2)  # squared-norm to match fast conv
         
     return np.array(dists)
+
+
+def real_space_rotational_distance_pairwise(images, angles):
+    
+    N = images.shape[0]
+    dists_dict = {}
+    
+    for i in range(N):
+        for j in range(i+1, N):
+            dists_dict[(i, j)] = real_space_rotational_distance(images[i], images[j], angles)
+            
+    return dists_dict
 
 
 def distance_matrix_from_dict(dists_dict, n_images):
@@ -119,33 +136,21 @@ def distance_matrix_from_dict(dists_dict, n_images):
     return dist_mat
 
 
-def fast_translation_distance(image1, image2):
-    ### note assumptions about this method e.g. circular convolution
-    ### vectorize this to multiple images
+# def fast_translation_distance(image1, image2):
+#     ### note assumptions about this method e.g. circular convolution
+#     ### vectorize this to multiple images
     
-    image1_ft = np.fft.fft2(image1)
-    image2_ft = np.fft.fft2(image2)
+#     image1_ft = np.fft.fft2(image1)
+#     image2_ft = np.fft.fft2(image2)
 
-    corr = np.fft.ifft2(np.conj(image1_ft) * image2_ft)
-    ty, tx = np.unravel_index(np.argmax(corr), corr.shape)
+#     corr = np.fft.ifft2(np.conj(image1_ft) * image2_ft)
+#     ty, tx = np.unravel_index(np.argmax(corr), corr.shape)
     
-    return ty, tx
-
-
-def shift_align_images(image1, image2):
-    ### change this function name
-    
-    ty, tx = fast_translation_distance(image1, image2)
-    
-    image_2_align = utils.translate(image2, -ty, -tx)
-    
-    return image_2_align
-
-
-
+#     return ty, tx
 
 
 ##### PUTTING FTK / WEMD / POT HERE FOR NOW #####
+
 
 def ftk_precompute(reference, images, B):
     
@@ -235,10 +240,8 @@ def embed(arr, wavelet, level):
     return np.concatenate(weighted_coefs)
 
 
-def wemd_rotational_distance(image1, image2, angles, wavelet='coif3', level=1):
-    
-    ### *** How to set the wavelet and level???
-    
+def wemd_rotational_distance(image1, image2, angles, wavelet='sym3', level=3):
+        
     dists = []
     
     w1 = embed(image1, wavelet, level)
@@ -258,8 +261,8 @@ def rotational_wasserstein_distance(image1, image2, angles, M):
 
     for a in angles:
         image2_rot = utils.rotate(image2, -a)
-        image2_rot = np.where(image2_rot<0, 0, image2_rot)
-        image2_rot = image2_rot / np.sum(image2_rot)
+        image2_rot = np.where(image2_rot<0, 0, image2_rot)  # catch negative values from interpolation
+        image2_rot = image2_rot / np.sum(image2_rot)  # normalize images back to one
         image2_flat = image2_rot.flatten()
 
         dists.append(ot.emd2(image1_flat, image2_flat, M))
@@ -267,13 +270,18 @@ def rotational_wasserstein_distance(image1, image2, angles, M):
     return np.array(dists)    
 
 
-def compute_transport_matrix(image):
+def compute_transport_matrix(image, metric='sqeuclidean'):
+    """
+    when using emd2 for Wasserstein distance, 
+    metric='sqeuclidean' -> W2 and metric='euclidean' -> W1
+    https://pythonot.github.io/quickstart.html
+    """
     
     ny, nx = image.shape
     xs = np.arange(nx)
     xgrid, ygrid = np.meshgrid(xs, xs)
     points = np.array(list(zip(ygrid.flatten(), xgrid.flatten())))  # order matches flatten convention
-    M = ot.dist(points, points)  # returns the 2-norm squared, change metric='euclidean' for w1    
+    M = ot.dist(points, points, metric=metric)  # returns the 2-norm squared, change metric='euclidean' for w1    
     
     return M
 
