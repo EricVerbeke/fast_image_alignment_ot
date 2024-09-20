@@ -3,6 +3,10 @@ import numpy as np
 from scipy import ndimage as ndi
 
 
+def log_abs(array):
+    return np.log(1 + np.abs(array))
+
+
 def radial_distance_grid(shape):
     """Compute grid of radial distances"""
     
@@ -45,6 +49,30 @@ def zero_pad_image_stack(image_stack, w):
     return np.pad(image_stack, pad_width=((0, 0), (w, w), (w, w)))
 
 
+def zero_pad_image_stack_to_size(image_stack, size):
+
+    N, ny, nx = image_stack.shape
+
+    d = size - ny
+
+    assert d > 0, 'new size is smaller than original'
+
+    if d % 2 == 0:
+        w = (size - ny) // 2
+        image_stack = np.pad(image_stack, pad_width=((0, 0), (w, w), (w, w)))
+
+    else:
+        w = (size - ny) / 2
+        if w < 1:
+            image_stack = np.pad(image_stack, pad_width=((0, 0), (0, 1), (0, 1)))
+        else:
+            l = int(w - 0.5)
+            r = int(w + 0.5)
+            image_stack = np.pad(image_stack, pad_width=((0, 0), (l, r), (l, r))) 
+            
+    return image_stack
+
+
 def load_mnist_images(image_file):
     with gzip.open(image_file, 'r') as f:
         magic_number = int.from_bytes(f.read(4), 'big') # first 4 bytes is a magic number
@@ -67,38 +95,3 @@ def load_mnist_labels(label_file):
         return labels
 
 
-##### add/test these functions later
-
-# def real_space_rotational_distance(img_1, img_2, angles, all_scores=False):
-    
-#     dists = []
-    
-#     for a in angles:
-#         img_2_rot = ndi.rotate(img_2, -a, order=3, reshape=False)  # rotate clockwise as hack for now
-#         dists.append(np.linalg.norm(img_1 - img_2_rot)**2)  # squared-norm to match fast conv
-        
-#     d_min_idx = np.argmin(dists)
-#     d_min = dists[d_min_idx]
-#     a_min = angles[d_min_idx]
-    
-#     if all_scores:
-#         return dists
-#     else:
-#         return d_min, a_min
-    
-
-# def radon_transform_from_skimage(array, angles):
-#     from skimage.transform import radon
-#     return radon(array, angles, preserve_range=True)[:, ::-1]
-
-
-# def radon_transform_from_real_rotation(array, angles):
-        
-#     projections = np.zeros((array.shape[1], len(angles)))
-    
-#     for i, a in enumerate(angles):
-#         img_r = rotate(array, a)
-#         p = np.sum(img_r, axis=0)
-#         projections[:, i] = p
-        
-#     return projections
