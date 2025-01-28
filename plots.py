@@ -32,14 +32,19 @@ def two_imshow(image1, image2, cmap='viridis', size=(7,7), cbar=False):
 
 def square_tile_plot(images, length, spine_colors, spine_size=1, size=5, pad=0.3, cmap='gray', save_path=False, show=True):
     
-    assert images.shape[0] >= length**2, "not enough images"
+    # assert images.shape[0] >= length**2, "not enough images"
+    N, ny, nx = images.shape
     
     fig, axs = plt.subplots(length, length, figsize=(size,size))
     axs = axs.flatten()
     
     for idx, ax in enumerate(axs):
-        ax.imshow(images[idx], cmap=cmap)
-        # ax.axis('off')
+        if idx < N:
+            ax.imshow(images[idx], cmap=cmap)
+            # ax.axis('off')
+            
+        else:
+            ax.imshow(np.zeros((ny, nx)), cmap=cmap)
         
         for side, spine in ax.spines.items():
             spine.set_color(spine_colors[idx])

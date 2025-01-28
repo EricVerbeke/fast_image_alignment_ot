@@ -118,13 +118,11 @@ class Transform:
         return images_cdf
     
     
-    def signed_cdf_transform(self, rescale=True):
-        
-        ### assertion doesn't catch if individual images in stack are all positive, move assertion to the decomp?
-        
+    def signed_cdf_transform(self, w=10, B=100, voxel_size=1, smooth=False, rescale=True):
+                
         images_rt = self.radon_transform()
         
-        ### *** EV: STILL TESTING THIS! 
+        ### *** EV: still testing 
         ### *** do I need to add zeros to both side
         ### *** how to manage update to size?
         # # if add_zeros: do this
@@ -133,9 +131,7 @@ class Transform:
         ###
         
         images_rt_pos, images_rt_neg = self.jordan_decomposition(images_rt)
-        
-        # assert np.any(images_rt_neg) == True, "all images are positive, use cdf_transform"
-        
+                
         images_cdf_pos = self.get_cdf(images_rt_pos)
         images_cdf_neg = self.get_cdf(images_rt_neg)
         
@@ -143,16 +139,15 @@ class Transform:
             images_cdf_pos = self.rescale_cdf(images_cdf_pos)
             images_cdf_neg = self.rescale_cdf(images_cdf_neg)
         
+        if smooth:
+            images_cdf_pos = smooth_cdf(images_cdf_pos, w=w, B=B, voxel_size=voxel_size)
+            images_cdf_neg = smooth_cdf(images_cdf_neg, w=w, B=B, voxel_size=voxel_size)
+             
         return images_cdf_pos, images_cdf_neg
     
     
     def rescale_cdf(self, images_cdf):
-        
-        ### add additonal normalization step for signed measures? e.g. P(X < x_max) = 1
-        ### fix division for small values
-        ### this rescale scheme converts t_negative to positive values, does this matter?
-        ### some cdfs don't necessarily start at 0, e.g. camerman w/ ramp filter, (large mass early in pdf?)
-        
+                
         cdf_scale = images_cdf[:, -1, :]  # last value of each cdf
         # cdf_scale = np.where(cdf_scale<1e-8, 1e-8, cdf_scale)  # catch small values
         cdf_scale = cdf_scale.reshape(self.N, 1, self.n_theta)
@@ -164,8 +159,6 @@ class Transform:
     def jordan_decomposition(self, t):
         """takes signed array t -> (t_+, t_-), both of size t"""
 
-        ### make the t_n positive after decomp?
-        ### need to normalize after?
         ### expensive to compute for large array stacks
 
         t_p = np.where(t >= 0, t, 0)
@@ -185,10 +178,10 @@ class Transform:
             # start_values = cdfs[0, :]  ### EV: MAKE THIS ONE THE DEFAULT
             # end_values = cdfs[-1, :]  ### these should always be ones
             
-            # ### EV: can pull next three lines out of loop if using this version
+            ### EV: can pull next three lines out of loop if using this version
             start_values = np.zeros(self.n_lines)
             end_values = np.ones(self.n_lines) 
-            # ###
+            ###
             
             # ### EV: can pull next three lines out of loop if using this version
             # start_values = np.zeros(self.n_lines) + 0.01  ### *** EV: arbitrary threshould to avoid bound
@@ -208,7 +201,7 @@ class Transform:
                 icdf[-1] = self.n_points
                 # ###
                 
-                images_icdf[n, :, idx] = icdf
+                images_icdf[n, :, idx] = icdf / self.n_points  # normalization to [0, 1] instead of number of pixels
                 
         return images_icdf
     
@@ -254,12 +247,14 @@ def iftn(array):
     return np.fft.ifftn(np.fft.ifftshift(array)).real
 
 
-def pdf_to_cdf(A):
+def pdf_to_cdf(A, scale=True):
     ### A is a matrix with columns as pdf (i.e. from Radon transform)
     
     A_cdf = np.cumsum(A, axis=0)
-    A_norm = A_cdf[-1, :]
-    A_cdf = A_cdf / A_norm
+    
+    if scale:
+        A_norm = A_cdf[-1, :]
+        A_cdf = A_cdf / A_norm
     
     return A_cdf
 
@@ -268,8 +263,11 @@ def cdf_to_icdf(A, n_points, n_theta):
     ### A is a matrix with columns as cdf
     ### this can be sped up for signed SW
     
-    start_values = A[0, :]
-    end_values = A[-1, :]
+    start_values = np.zeros(n_theta)
+    end_values = np.ones(n_theta) 
+    
+    # start_values = A[0, :]
+    # end_values = A[-1, :]  # EV: breaks if cdf is not monotonic increase
 
     xgrid = np.linspace(start_values, end_values, n_points, endpoint=True)
     yvals = np.arange(n_points)
@@ -284,11 +282,33 @@ def cdf_to_icdf(A, n_points, n_theta):
         icdf[-1] = n_points
         ###
         
-        A_icdf[:, idx] = icdf   
+        A_icdf[:, idx] = icdf / n_points  # add normalization to [0, 1] instead of number of pixels
         
     return A_icdf
     
+
+def smooth_cdf(cdfs, w=10, B=200, voxel_size=1):
+    ### add option to renormalize each column
+    ### change this to apply to whole image stack
     
+    cdfs_blur = np.zeros(cdfs.shape)
+    
+    N = cdfs[0, :, 0].size + 2*w
+    spatial_frequency =  np.fft.fftshift(np.fft.fftfreq(N, voxel_size))
+    grid = np.meshgrid(spatial_frequency**2)[0]
+    G = np.exp(- grid * (B/4))
+    
+    for idx, cdf in enumerate(cdfs):
+        
+        cdf_pad = np.pad(cdf, pad_width=((w, w), (0, 0)), mode='constant', constant_values=(0, 1))
+        F = np.fft.fftshift(np.fft.fft(cdf_pad, axis=0), axes=0)
+        F_conv = F * G[:, np.newaxis]
+        cdf_blur = np.fft.ifft(np.fft.ifftshift(F_conv, axes=0), axis=0).real
+        cdf_blur = cdf_blur[w:-w, :]
+        cdfs_blur[idx] = cdf_blur
+        
+    return cdfs_blur
+
     
 ##### add/test these functions later
     
