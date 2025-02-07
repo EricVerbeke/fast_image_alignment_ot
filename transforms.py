@@ -4,38 +4,43 @@ import numpy as np
 
 class Transform:
     
-    def __init__(self, images, transform='SCDF', angles=None, n_points=None, apply_ramp=True):
+    def __init__(self, images, angles=None, n_points=None, apply_ramp=True):
         """
-        Assumes input is image stack, apply various polar image transforms:
-        - RT = Radon transform
-        - PFT = polar Fourier transform
-        - CDF = cumulative distribution function
-        - SCDF = signed cumulative distribution function
-        - ICDF = inverse cumulative distribution function
-        - ISCDF = inverse signed cumulative distribution function
+        Apply various transforms to images:
+        - non-uniform Fourier transform
+        - Radon transform
+        - cumulative distribution transform
+        - signed cumulative distribution transform
+        - inverse cumulative distribution transform
+        - signed inverse cumulative distribution transform
         
+        Inputs:
+        - images as array
         - angles for Radon transform (in degrees)
-        - n_points (number of radial grid points)
+        - n_points (number of equispaced points sampled in NUFFT)
+        
+        Output:
+        - (regular) (N x ny x nx) array
+        - (signed) (N x ny x nx , N x ny x nx) array
         
         ### TODO:
-        ### - make transforms apply to single image stacks
-        ### - address comments in functions (e.g. add oversample in icdf)
-        ### - fix grids
+        ### - fix grids for NUFFT ?
+        ### - fix CDF -> ICDF sampling ?
         """
         
         self.images = images.astype(np.complex128) # required type for nufft
-        self.apply_ramp = apply_ramp
         self.angles = angles
         self.n_points = n_points
+        self.apply_ramp = apply_ramp
+        self.shape = images.shape
         
-        shape = self.images.shape
-        self.N = shape[0]
-        self.ny = shape[1]
-        self.nx = shape[2]
+        if len(self.shape) == 2:
+            self.N, self.ny, self.nx = 1, self.shape[0], self.shape[1]
+        elif len(self.shape) == 3:
+            self.N, self.ny, self.nx = self.shape[0], self.shape[1], self.shape[2]   
 
-        # If angles and n_points not set, scale according to image size
         if self.angles is None:
-            self.angles = np.linspace(0, 360, self.ny, endpoint=False)
+            self.angles = np.linspace(0, 360, self.ny, endpoint=False)  # scale with size of image
         if self.n_points is None:
             self.n_points = self.ny
             
@@ -43,9 +48,7 @@ class Transform:
     
     
     def set_radial_2d_nufft_plan(self, nufft_type=2, eps=1e-8):
-        
-        n_trans = self.N  
-        
+                
         rads = self.angles / 180 * np.pi
         
         ### EV: need to check that grid is generated correctly
@@ -61,11 +64,10 @@ class Transform:
         y_theta = y_idx[:, np.newaxis] * np.cos(rads)[np.newaxis, :]
         y_theta = np.pi * y_theta.flatten()
 
-        plan = finufft.Plan(nufft_type, (self.nx, self.ny), n_trans, eps)
+        plan = finufft.Plan(nufft_type, (self.nx, self.ny), self.N, eps)
         plan.setpts(x_theta, y_theta)
         
         self.ramp = np.abs(y_idx)
-        # self.ramp = np.hamming(y_idx.size)
         self.n_lines = len(rads)
         
         return plan
@@ -97,8 +99,6 @@ class Transform:
     
     
     def cdf_transform(self, rescale=True):
-
-        ### pick to have function inputs here or in class parameters
         
         images_rt = self.radon_transform()
         
@@ -130,7 +130,7 @@ class Transform:
         # self.n_points = self.n_points + 1
         ###
         
-        images_rt_pos, images_rt_neg = self.jordan_decomposition(images_rt)
+        images_rt_pos, images_rt_neg = self.hahn_decomposition(images_rt)
                 
         images_cdf_pos = self.get_cdf(images_rt_pos)
         images_cdf_neg = self.get_cdf(images_rt_neg)
@@ -156,10 +156,8 @@ class Transform:
         return images_cdf       
     
     
-    def jordan_decomposition(self, t):
+    def hahn_decomposition(self, t):
         """takes signed array t -> (t_+, t_-), both of size t"""
-
-        ### expensive to compute for large array stacks
 
         t_p = np.where(t >= 0, t, 0)
         t_n = np.where(t <= 0, t, 0)
@@ -310,7 +308,7 @@ def smooth_cdf(cdfs, w=10, B=200, voxel_size=1):
     return cdfs_blur
 
     
-##### add/test these functions later
+##### add these functions for testing
     
 # def radon_transform_from_skimage(array, angles):
 #     from skimage.transform import radon

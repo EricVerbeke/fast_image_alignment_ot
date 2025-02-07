@@ -85,3 +85,32 @@ def angle_distribution_from_nearest_neighbors_dict(knn, rotation_axis_matrix):
 def angle_differences_from_nearest_neighbors(knn, rot_values):
     
     return [rot_values[k] for k in knn]
+
+
+def b_factor_function(shape, voxel_size, B):
+    """B factor equation as function of spatial frequency"""
+    
+    N = shape[0]
+    
+    spatial_frequency = np.fft.fftshift(np.fft.fftfreq(N, voxel_size))
+
+    sf_grid = np.meshgrid(*[spatial_frequency**2 for dimension in range(len(shape))])
+
+    square_sf_grid = sf_grid[0] # initialize to broadcast by dimension
+    for dimension in range(1, len(shape)):
+        square_sf_grid = square_sf_grid + sf_grid[dimension]
+    
+    G = np.exp(- square_sf_grid * (B/4))
+    
+    return G
+
+
+def apply_b_factor(v, voxel, B_signal):
+    """return array after applying B-factor decay, input is real array"""
+    
+    G = b_factor_function(v.shape, voxel, B_signal)
+    V = np.fft.fftshift(np.fft.fftn(v))
+    Vb = G * V
+    vb = np.fft.ifftn(np.fft.ifftshift(Vb))
+    
+    return vb

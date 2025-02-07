@@ -1,8 +1,8 @@
 import numpy as np
 
-import ftk  # PUT FTK HERE FOR NOW
-import pywt  # PUT WEMD HERE FOR NOW
-import ot  # PUT OT HERE FOR NOW
+import ftk  
+import pywt 
+import ot 
 
 ### my lib
 
@@ -11,8 +11,8 @@ import transforms
 
 
 def rotational_distances(U, V):
-    ### compute ||U - T_l V||^2_F for all shifts of V
-    ### EV: add normalizing constant
+    ### fast compute ||U - T_l V||^2_F for all shifts of V
+    ### EV: need to add normalizing constant
     
     U_norm = np.linalg.norm(U)**2
     V_norm = np.linalg.norm(V)**2
@@ -33,7 +33,6 @@ def rotational_distances(U, V):
 
 
 def signed_rotational_distances(Up, Vp, Un, Vn):
-    ### EV: should this include scaling of the signed distances???
     
     dists_pos = rotational_distances(Up, Vp)
     dists_neg = rotational_distances(Un, Vn)
@@ -43,7 +42,7 @@ def signed_rotational_distances(Up, Vp, Un, Vn):
     return dists
 
 
-def slow_sliced_wasserstein_rotation(U, V, n_theta):
+def slow_sliced_rotational_distances(U, V, n_theta):
     
     dists = np.zeros(n_theta)
 
@@ -57,7 +56,7 @@ def slow_sliced_wasserstein_rotation(U, V, n_theta):
     return dists
 
 
-def slow_signed_sliced_wasserstein_rotation(Up, Vp, Un, Vn, n_theta):
+def slow_signed_sliced_rotational_distances(Up, Vp, Un, Vn, n_theta):
             
     d_sw2_p = slow_sliced_wasserstein_rotation(Up, Vp, n_theta)
     d_sw2_n = slow_sliced_wasserstein_rotation(Un, Vn, n_theta)
@@ -69,7 +68,7 @@ def slow_signed_sliced_wasserstein_rotation(Up, Vp, Un, Vn, n_theta):
 
 def l2_distance(U, V):
     
-    return np.linalg.norm(U - V)
+    return np.linalg.norm(U - V)**2
 
 
 def sliced_distance(U, V):
@@ -108,11 +107,6 @@ def reference_rotational_max_sliced_wasserstein(U, V, n_theta, N):
     return {idx: rotational_max_sliced_wasserstein(U, V[idx], n_theta) for idx in range(N)}
 
             
-### EV: include all scores or just min?
-### EV: change formatting from dict to matrix, add function to compute mins
-### EV: update variable names, i->idx, img->U
-### EV: add option to scale signed distances?
-
 def reference_rotational_distances(reference, images):
     
     N = images.shape[0]
@@ -133,55 +127,6 @@ def reference_signed_rotational_distances(ref_pos, images_pos, ref_neg, images_n
         dists_dict[i] = signed_rotational_distances(ref_pos, images_pos[i], ref_neg, images_neg[i])
         
     return dists_dict
-        
-        
-# def reference_signed_rotational_distance(refs_t_pos, refs_t_neg, imgs_t_pos, imgs_t_neg, N, n_points, n_theta, metric='Wasserstein'):
-#     ### Computes the rotational signed sliced distance: d(mu^+ + nu^- , mu^- + nu^+)
-#     ### refs_t and imgs_t should be the Radon transform of the images
-#     ### EV: could change to take just RT as input
-    
-#     dists_dict = {idx: np.zeros(n_theta) for idx in range(N)}
-    
-#     for idx in range(N):
-        
-#         for t in range(n_theta):
-        
-#             P = refs_t_pos[0] + abs(utils.translate(imgs_t_neg[idx], 0, t))
-#             Q = utils.translate(imgs_t_pos[idx], 0, t) + abs(refs_t_neg[0])
-
-#             P = transforms.pdf_to_cdf(P)
-#             Q = transforms.pdf_to_cdf(Q)
-
-#             if metric == 'Wasserstein':
-#                 P = transforms.cdf_to_icdf(P, n_points, n_theta)
-#                 Q = transforms.cdf_to_icdf(Q, n_points, n_theta)
-
-#             dists_dict[idx][t] = np.linalg.norm(P - Q)
-        
-#     return dists_dict
-
-
-# def reference_rotational_max_sliced_wasserstein(refs_t, imgs_t, N, n_theta):
-#     ### Input should be inverse cdf transform without ramp filter 
-    
-#     dists_dict = {idx: np.zeros(n_theta) for idx in range(N)}
-    
-#     P = refs_t[0]
-    
-#     for idx in range(N):
-        
-#         Q = imgs_t[idx]
-    
-#         for t in range(n_theta):
-        
-#             Qi = utils.translate(Q, 0, t)
-
-#             dist = np.linalg.norm(P - Qi, axis=0)
-#             dist_max = np.amax(dist)
-
-#             dists_dict[idx][t] = dist_max
-        
-#     return dists_dict
 
    
 def pairwise_rotational_distances(images, n_points):
@@ -208,9 +153,7 @@ def pairwise_signed_rotational_distances(images_pos, images_neg):
     return dists_dict
 
 
-def real_space_rotational_distance(image1, image2, angles):
-    ### make compatible with other distance functions
-    ### this is the "brute force" rotation approach
+def real_space_rotational_distances(image1, image2, angles):
     
     dists = []
     
@@ -233,22 +176,8 @@ def real_space_rotational_distance_pairwise(images, angles):
     return dists_dict
 
 
-def distance_matrix_from_dict(dists_dict, n_images):
-    
-    dist_mat = np.zeros((n_images, n_images))
-    
-    for key, dist in dists_dict.items():
-        
-        idx1, idx2 = key
-        dist_min = np.amin(dist)
-        dist_mat[idx1, idx2] = dist_min
-        dist_mat[idx2, idx1] = dist_min
-        
-    return dist_mat
-
-
-def fast_translation_distance(image1, image2):
-    ### note assumptions about this method e.g. circular convolution
+def fast_translational_distances(image1, image2):
+    ### does not zero pad (i.e. circular translation allowed)
     ### vectorize this to multiple images
     
     image1_ft = np.fft.fft2(image1)
@@ -262,8 +191,74 @@ def fast_translation_distance(image1, image2):
 
 #################################################
 #####            OTHER DISTANCES            #####
-#####            FTK / WEMD / POT           #####
+#####            POT / FTK / WEMD           #####
 #################################################
+
+
+def compute_transport_matrix(image, metric='sqeuclidean'):
+    """
+    when using emd2 for Wasserstein distance, 
+    metric='sqeuclidean' -> W2 and metric='euclidean' -> W1
+    https://pythonot.github.io/quickstart.html
+    """
+    
+    ny, nx = image.shape
+    xs = np.arange(nx)
+    xgrid, ygrid = np.meshgrid(xs, xs)
+    points = np.array(list(zip(ygrid.flatten(), xgrid.flatten())))  # order matches flatten convention
+    M = ot.dist(points, points, metric=metric)  # returns the 2-norm squared, change metric='euclidean' for w1    
+    
+    return M
+
+
+def wasserstein_distance(image1, image2, M, numItermax=100000):
+        
+    image1_flat = image1.flatten()
+    image1_flat = np.where(image1_flat < 0, 0, image1_flat)
+    image1_flat = image1_flat / np.sum(image1_flat)
+    
+    image2_flat = image2.flatten()
+    image2_flat = np.where(image2_flat < 0, 0, image2_flat)
+    image2_flat = image2_flat / np.sum(image2_flat)
+    
+    dist = ot.emd2(image1_flat, image2_flat, M, numItermax)  # EV: add numItermax?
+
+    return dist
+
+
+def rotational_wasserstein_distances(image1, image2, angles, M):
+        
+    dists = []
+    image1_flat = image1.flatten()
+
+    for a in angles:
+        image2_rot = utils.rotate(image2, -a)
+        image2_rot = np.where(image2_rot<0, 0, image2_rot)
+        image2_rot = image2_rot / np.sum(image2_rot)  # normalize images back to one
+        image2_flat = image2_rot.flatten()
+
+        dists.append(ot.emd2(image1_flat, image2_flat, M))  # EV: add numItermax?
+
+    return np.array(dists)
+
+
+def rotational_sinkhorn_distances(image1, image2, angles, M, reg=10, numItermax=3):
+    ### EV: can probably combine this with Wasserstein
+        
+    dists = []
+    image1 = np.where(image1<1e-5, 1e-5, image1)  # sinkhorn seems to break with zeros
+    image1 = image1 / np.sum(image1)
+    image1_flat = image1.flatten()
+
+    for a in angles:
+        image2_rot = utils.rotate(image2, -a)
+        image2_rot = np.where(image2_rot<1e-5, 1e-5, image2_rot)  # catch negative values from interpolation
+        image2_rot = image2_rot / np.sum(image2_rot)  # normalize images back to one
+        image2_flat = image2_rot.flatten()
+
+        dists.append(ot.sinkhorn2(image1_flat, image2_flat, M, reg=reg, numItermax=numItermax, method='sinkhorn'))
+
+    return np.array(dists)
 
 
 def ftk_precompute(reference, images, n_psi, B):
@@ -353,7 +348,7 @@ def embed(arr, wavelet, level):
     return np.concatenate(weighted_coefs)
 
 
-def wemd_rotational_distance(image1, image2, angles, wavelet='sym3', level=3):
+def wemd_rotational_distances(image1, image2, angles, wavelet='sym3', level=3):
         
     dists = []
     
@@ -366,88 +361,3 @@ def wemd_rotational_distance(image1, image2, angles, wavelet='sym3', level=3):
         
     return np.array(dists)
 
-
-def compute_transport_matrix(image, metric='sqeuclidean'):
-    """
-    when using emd2 for Wasserstein distance, 
-    metric='sqeuclidean' -> W2 and metric='euclidean' -> W1
-    https://pythonot.github.io/quickstart.html
-    """
-    
-    ny, nx = image.shape
-    xs = np.arange(nx)
-    xgrid, ygrid = np.meshgrid(xs, xs)
-    points = np.array(list(zip(ygrid.flatten(), xgrid.flatten())))  # order matches flatten convention
-    M = ot.dist(points, points, metric=metric)  # returns the 2-norm squared, change metric='euclidean' for w1    
-    
-    return M
-
-
-def rotational_wasserstein_distance(image1, image2, angles, M):
-        
-    dists = []
-    image1_flat = image1.flatten()
-
-    for a in angles:
-        image2_rot = utils.rotate(image2, -a)
-        image2_rot = np.where(image2_rot<0, 0, image2_rot)
-        image2_rot = image2_rot / np.sum(image2_rot)  # normalize images back to one
-        image2_flat = image2_rot.flatten()
-
-        dists.append(ot.emd2(image1_flat, image2_flat, M))  # EV: add numItermax?
-
-    return np.array(dists)
-
-
-def rotational_sinkhorn_distance(image1, image2, angles, M, reg=10, numItermax=3):
-    ### EV: can probably combine this with Wasserstein
-        
-    dists = []
-    image1 = np.where(image1<1e-5, 1e-5, image1)  # sinkhorn seems to break with zeros
-    image1 = image1 / np.sum(image1)
-    image1_flat = image1.flatten()
-
-    for a in angles:
-        image2_rot = utils.rotate(image2, -a)
-        image2_rot = np.where(image2_rot<1e-5, 1e-5, image2_rot)  # catch negative values from interpolation
-        image2_rot = image2_rot / np.sum(image2_rot)  # normalize images back to one
-        image2_flat = image2_rot.flatten()
-
-        dists.append(ot.sinkhorn2(image1_flat, image2_flat, M, reg=reg, numItermax=numItermax, method='sinkhorn'))
-
-    return np.array(dists)
-
-
-
-
-
-########
-
-# def circulant_matvec(v, c):
-
-#     return np.fft.ifft(np.fft.fft(v) * np.fft.fft(c)).real
-
-
-# def fast_shift_computation(uj, vj):
-#     ### compute the circular convolution for each row vector in O(L log L) with circulant matvec
-
-#     c = np.zeros(vj.size).astype(vj.dtype)  # inherit for complex dtyle
-#     c[0] = vj[0]
-#     c[1:] = np.flip(vj[1:])
-#     dist = circulant_matvec(uj, np.conj(c))
-
-#     return dist
-
-
-# def rotational_distances(U, V, n_points):
-#     ### compute ||U - T_l V||^2_F for all shifts of V
-    
-#     U_norm = np.linalg.norm(U)**2
-#     V_norm = np.linalg.norm(V)**2
-    
-#     uv_l = np.array([fast_shift_computation(U[j, :], V[j, :]) for j in range(n_points)])
-#     uv_l_sum = np.sum(uv_l, axis=0)
-     
-#     dists = U_norm + V_norm - 2*uv_l_sum
-    
-#     return dists

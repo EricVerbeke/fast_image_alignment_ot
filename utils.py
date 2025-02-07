@@ -7,6 +7,28 @@ def log_abs(array):
     return np.log(1 + np.abs(array))
 
 
+def generate_centered_gaussian(L=128, d=2, sigma=1):
+    
+    l = np.linspace(-L/2, L/2, L)
+    p = np.array(np.meshgrid(*[l for _ in range(d)]))
+    g = np.exp(-( np.sum(p**2, axis=0) ) / (2*sigma**2))
+    g = g / np.sum(g)  # normalize to sum = 1
+    
+    return g
+
+
+def signal_convolution(f, g):
+    """convolve image f with g, both real LxL arrays"""
+
+    ### doesn't account for circular convolution
+    
+    g_hat = np.fft.fftshift(np.fft.fftn(g))
+    f_hat = np.fft.fftshift(np.fft.fftn(f))
+    z = np.fft.fftshift(np.fft.ifftn(np.fft.ifftshift(g_hat * f_hat))).real
+
+    return z
+
+
 def radial_distance_grid(shape):
     """Compute grid of radial distances"""
     
@@ -73,6 +95,30 @@ def zero_pad_image_stack_to_size(image_stack, size):
     return image_stack
 
 
+# def fourier_pad_image_stack(imgs, p=2):
+#     shape = imgs.shape
+#     l = shape[1] * p
+#     imgs_ft = np.fft.fftshift(np.fft.fft2(imgs))
+#     imgs_ft_pad = zero_pad_image_stack_to_size(imgs_ft, l)
+#     imgs_pad = np.fft.ifft2(np.fft.ifftshift(imgs_ft_pad)).real
+
+#     return imgs_pad
+
+
+def distance_matrix_from_dict(dists_dict, n_images):
+    
+    dist_mat = np.zeros((n_images, n_images))
+    
+    for key, dist in dists_dict.items():
+        
+        idx1, idx2 = key
+        dist_min = np.amin(dist)
+        dist_mat[idx1, idx2] = dist_min
+        dist_mat[idx2, idx1] = dist_min
+        
+    return dist_mat
+
+
 def load_mnist_images(image_file):
     with gzip.open(image_file, 'r') as f:
         magic_number = int.from_bytes(f.read(4), 'big') # first 4 bytes is a magic number
@@ -83,7 +129,7 @@ def load_mnist_images(image_file):
         images = np.frombuffer(image_data, dtype=np.uint8).reshape((image_count, row_count, column_count))
         
         return images
-
+    
     
 def load_mnist_labels(label_file):
     with gzip.open(label_file, 'r') as f:
@@ -93,5 +139,3 @@ def load_mnist_labels(label_file):
         labels = np.frombuffer(label_data, dtype=np.uint8)
         
         return labels
-
-

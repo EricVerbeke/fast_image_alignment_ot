@@ -6,10 +6,11 @@ class Image:
     
     def __init__(self, images, normalize=True, mask=True, radius=False, scale=False, add_noise=False, snr=1):
         """
-        Checks input images and apply normalization and masking if necessary
+        Preprocess and various image modifications
         
         TODO:
-        - functionality for single image stacks
+        - add Fourier scaling / cropping
+        - move zero padding from utils to here
         """
         self.images = images
         self.shape = images.shape
@@ -22,6 +23,7 @@ class Image:
         
         if len(self.shape) == 2:
             self.N, self.ny, self.nx = 1, self.shape[0], self.shape[1]
+            self.images = images[np.newaxis, ...]
         elif len(self.shape) == 3:
             self.N, self.ny, self.nx = self.shape[0], self.shape[1], self.shape[2]
         else:
@@ -83,8 +85,8 @@ class Image:
     
     def preprocess_images(self):
         
-        if self.scale:
-            self.images = self.fourier_scale_images()
+        # if self.scale:
+        #     self.images = self.fourier_scale_images()
             
         if self.add_noise:
             self.images = self._add_white_gaussian_noise()
