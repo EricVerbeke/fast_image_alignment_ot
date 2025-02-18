@@ -67,7 +67,10 @@ class Transform:
         plan = finufft.Plan(nufft_type, (self.nx, self.ny), self.N, eps)
         plan.setpts(x_theta, y_theta)
         
-        self.ramp = np.abs(y_idx)
+        self.ramp = np.abs(y_idx) 
+        # self.ramp = np.abs(y_idx) ** (1/2)
+        # self.ramp = np.fft.fftshift(np.hamming(self.n_points)) ** (1/2)
+        # self.ramp[self.n_points // 2] = 1
         self.n_lines = len(rads)
         
         return plan
@@ -139,9 +142,9 @@ class Transform:
             images_cdf_pos = self.rescale_cdf(images_cdf_pos)
             images_cdf_neg = self.rescale_cdf(images_cdf_neg)
         
-        if smooth:
-            images_cdf_pos = smooth_cdf(images_cdf_pos, w=w, B=B, voxel_size=voxel_size)
-            images_cdf_neg = smooth_cdf(images_cdf_neg, w=w, B=B, voxel_size=voxel_size)
+        # if smooth:
+        #     images_cdf_pos = smooth_cdf(images_cdf_pos, w=w, B=B, voxel_size=voxel_size)
+        #     images_cdf_neg = smooth_cdf(images_cdf_neg, w=w, B=B, voxel_size=voxel_size)
              
         return images_cdf_pos, images_cdf_neg
     
@@ -166,40 +169,26 @@ class Transform:
     
     
     def get_uniform_inverse_cdf(self, images_cdf):
-        ### this is a slow version, need to implement fast maybe using ndi.map_coords to vectorize interpolate
-        ### add an option to increase the sampling on the xgrid
+        ### EV: implement a vectroized version, try using ndi.map_coords for 1D interp
+        ### EV: add an option to increase the sampling on the xgrid (x)
         
         images_icdf = np.zeros(images_cdf.shape)
-        yvals = np.arange(self.n_points)
         
+        x = np.linspace(0, 1, self.n_points, endpoint=True)  # EV: use this in interp if including different amount of sampling (xp)
+        xp = np.linspace(0, 1, self.n_points, endpoint=True)  # EV: make uniform grid from [0, 1] for interpolation
+                
         for n, cdfs in enumerate(images_cdf):
-            # start_values = cdfs[0, :]  ### EV: MAKE THIS ONE THE DEFAULT
-            # end_values = cdfs[-1, :]  ### these should always be ones
-            
-            ### EV: can pull next three lines out of loop if using this version
-            start_values = np.zeros(self.n_lines)
-            end_values = np.ones(self.n_lines) 
-            ###
-            
-            # ### EV: can pull next three lines out of loop if using this version
-            # start_values = np.zeros(self.n_lines) + 0.01  ### *** EV: arbitrary threshould to avoid bound
-            # end_values = np.ones(self.n_lines) - 0.01
-            # ###
-            
-            ### EV: try prepend zero and append ones ?
-            
-            xgrid = np.linspace(start_values, end_values, self.n_points, endpoint=True)
             
             for idx in range(self.n_lines):
-                icdf = np.interp(xgrid[:, idx], cdfs[:, idx], yvals)
-                # icdf = np.interp(xgrid[:, idx], cdfs[:, idx], yvals, period=self.n_points)  ### *** EV: add period to interp??
                 
-                # ### EV: TEST THIS HACK TO ENFORCE BOUNDS
+                icdf = np.interp(x, cdfs[:, idx], xp)
+                                
+                ### EV: HACK TO ENFORCE BOUNDS (not sure why this helps)
                 icdf[0] = 0
-                icdf[-1] = self.n_points
-                # ###
+                icdf[-1] = 1
+                ###
                 
-                images_icdf[n, :, idx] = icdf / self.n_points  # normalization to [0, 1] instead of number of pixels
+                images_icdf[n, :, idx] = icdf
                 
         return images_icdf
     
