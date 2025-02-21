@@ -73,6 +73,9 @@ def zero_pad_image_stack(image_stack, w):
 
 def zero_pad_image_stack_to_size(image_stack, size):
 
+    if len(image_stack.shape) == 2:
+        image_stack = image_stack[np.newaxis, ...]
+
     N, ny, nx = image_stack.shape
 
     d = size - ny
