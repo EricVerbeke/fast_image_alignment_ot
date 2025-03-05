@@ -1,8 +1,0 @@
-numpy 
-scikit-image
-scipy
-matplotlib
-ot
-ftk
-# finufft  # installed with ftk?
-# pywt  # installed with scipy?

@@ -7,7 +7,7 @@ class Transform:
     def __init__(self, images, angles=None, n_points=None, apply_ramp=True):
         """
         Apply various transforms to images:
-        - non-uniform Fourier transform
+        - non-uniform polar Fourier transform
         - Radon transform
         - cumulative distribution transform
         - signed cumulative distribution transform
@@ -22,10 +22,10 @@ class Transform:
         Output:
         - (regular) (N x ny x nx) array
         - (signed) (N x ny x nx , N x ny x nx) array
-        
-        ### TODO:
-        ### - fix grids for NUFFT ?
-        ### - fix CDF -> ICDF sampling ?
+
+        TODO:
+        - add an option to increase the sampling on the xgrid (x) for ICDF
+        - add option to change grid sampling for ICDF (i.e. Chebyshev nodes)
         """
         
         self.images = images.astype(np.complex128) # required type for nufft
@@ -51,12 +51,15 @@ class Transform:
                 
         rads = self.angles / 180 * np.pi
         
-        ### EV: need to check that grid is generated correctly
+        ### EV: shift points to reflect a true grid center?
         if self.n_points % 2 == 0:
-            y_idx = np.linspace(-1, 1, self.n_points, endpoint=False)  # EV: shift points right to reflect true grid center?
+            y_idx = np.linspace(-1, 1, self.n_points, endpoint=False)  # EV: default for even
             # y_idx = np.linspace(-(1 - (1/self.n_points)), 1 - (1/self.n_points), self.n_points, endpoint=True)
+            # y_idx = np.linspace(-1, 1, self.n_points, endpoint=True)
         else:
-            y_idx = np.linspace(-(1 - (1/self.n_points)), 1 - (1/self.n_points), self.n_points, endpoint=True)
+            y_idx = np.linspace(-(1 - (1/self.n_points)), 1 - (1/self.n_points), self.n_points, endpoint=True) # EV: default for odd
+            # y_idx = np.linspace(-1, 1, self.n_points, endpoint=True)
+            # y_idx = np.linspace(-1, 1, self.n_points, endpoint=False) 
 
         x_theta = y_idx[:, np.newaxis] * np.sin(rads)[np.newaxis, :]
         x_theta = np.pi * x_theta.flatten()
@@ -67,10 +70,7 @@ class Transform:
         plan = finufft.Plan(nufft_type, (self.nx, self.ny), self.N, eps)
         plan.setpts(x_theta, y_theta)
         
-        self.ramp = np.abs(y_idx) 
-        # self.ramp = np.abs(y_idx) ** (1/2)
-        # self.ramp = np.fft.fftshift(np.hamming(self.n_points)) ** (1/2)
-        # self.ramp[self.n_points // 2] = 1
+        self.ramp = np.abs(y_idx) # EV: can try variations of the ramp filter
         self.n_lines = len(rads)
         
         return plan
@@ -103,16 +103,7 @@ class Transform:
     
     def cdf_transform(self, rescale=True):
         
-        images_rt = self.radon_transform()
-        
-        ### *** EV: STILL TESTING THIS! 
-        ### *** do I need to add zeros to both side
-        ### *** how to manage update to size?
-        # # if add_zeros: do this
-        # images_rt = np.pad(images_rt, pad_width=((0, 0), (1, 1), (0, 0)))  # enfore rt starts at 0
-        # self.n_points = self.n_points + 2
-        ###
-        
+        images_rt = self.radon_transform() 
         images_cdf = self.get_cdf(images_rt)
         
         if rescale:
@@ -124,16 +115,7 @@ class Transform:
     def signed_cdf_transform(self, w=10, B=100, voxel_size=1, smooth=False, rescale=True):
                 
         images_rt = self.radon_transform()
-        
-        ### *** EV: still testing 
-        ### *** do I need to add zeros to both side
-        ### *** how to manage update to size?
-        # # if add_zeros: do this
-        # images_rt = np.pad(images_rt, pad_width=((0, 0), (1, 0), (0, 0)))  # enfore rt starts at 0
-        # self.n_points = self.n_points + 1
-        ###
-        
-        images_rt_pos, images_rt_neg = self.hahn_decomposition(images_rt)
+        images_rt_pos, images_rt_neg = hahn_decomposition(images_rt)
                 
         images_cdf_pos = self.get_cdf(images_rt_pos)
         images_cdf_neg = self.get_cdf(images_rt_neg)
@@ -152,25 +134,13 @@ class Transform:
     def rescale_cdf(self, images_cdf):
                 
         cdf_scale = images_cdf[:, -1, :]  # last value of each cdf
-        # cdf_scale = np.where(cdf_scale<1e-8, 1e-8, cdf_scale)  # catch small values
         cdf_scale = cdf_scale.reshape(self.N, 1, self.n_theta)
         images_cdf = images_cdf / cdf_scale
         
         return images_cdf       
     
     
-    def hahn_decomposition(self, t):
-        """takes signed array t -> (t_+, t_-), both of size t"""
-
-        t_p = np.where(t >= 0, t, 0)
-        t_n = np.where(t <= 0, t, 0)
-
-        return t_p, t_n
-    
-    
     def get_uniform_inverse_cdf(self, images_cdf):
-        ### EV: implement a vectroized version, try using ndi.map_coords for 1D interp
-        ### EV: add an option to increase the sampling on the xgrid (x)
         
         images_icdf = np.zeros(images_cdf.shape)
         
@@ -191,7 +161,7 @@ class Transform:
                 images_icdf[n, :, idx] = icdf
                 
         return images_icdf
-    
+   
     
     def inverse_cdf_transform(self, rescale=True):
         
@@ -234,67 +204,81 @@ def iftn(array):
     return np.fft.ifftn(np.fft.ifftshift(array)).real
 
 
-def pdf_to_cdf(A, scale=True):
-    ### A is a matrix with columns as pdf (i.e. from Radon transform)
-    
-    A_cdf = np.cumsum(A, axis=0)
-    
-    if scale:
-        A_norm = A_cdf[-1, :]
-        A_cdf = A_cdf / A_norm
-    
-    return A_cdf
+def hahn_decomposition(f):
+    """takes signed array f -> (f_+, f_-), both of size f"""
+
+    f_p = np.where(f >= 0, f, 0)
+    f_n = np.where(f <= 0, f, 0)
+
+    return f_p, f_n
 
 
-def cdf_to_icdf(A, n_points, n_theta):
-    ### A is a matrix with columns as cdf
-    ### this can be sped up for signed SW
+
+########
+
+
+
+# def pdf_to_cdf(A, scale=True):
+#     ### A is a matrix with columns as pdf (i.e. from Radon transform)
     
-    start_values = np.zeros(n_theta)
-    end_values = np.ones(n_theta) 
+#     A_cdf = np.cumsum(A, axis=0)
     
-    # start_values = A[0, :]
-    # end_values = A[-1, :]  # EV: breaks if cdf is not monotonic increase
+#     if scale:
+#         A_norm = A_cdf[-1, :]
+#         A_cdf = A_cdf / A_norm
+    
+#     return A_cdf
 
-    xgrid = np.linspace(start_values, end_values, n_points, endpoint=True)
-    yvals = np.arange(n_points)
 
-    A_icdf = np.zeros((n_points, n_theta))
+# def cdf_to_icdf(A, n_points, n_theta):
+#     ### A is a matrix with columns as cdf
+#     ### this can be sped up for signed SW
+    
+#     start_values = np.zeros(n_theta)
+#     end_values = np.ones(n_theta) 
+    
+#     # start_values = A[0, :]
+#     # end_values = A[-1, :]  # EV: breaks if cdf is not monotonic increase
 
-    for idx in range(n_theta):
-        icdf = np.interp(xgrid[:, idx], A[:, idx], yvals)
+#     xgrid = np.linspace(start_values, end_values, n_points, endpoint=True)
+#     yvals = np.arange(n_points)
+
+#     A_icdf = np.zeros((n_points, n_theta))
+
+#     for idx in range(n_theta):
+#         icdf = np.interp(xgrid[:, idx], A[:, idx], yvals)
         
-        ### EV: Enforce bounds to ignore interpolation 
-        icdf[0] = 0
-        icdf[-1] = n_points
-        ###
+#         ### EV: Enforce bounds to ignore interpolation 
+#         icdf[0] = 0
+#         icdf[-1] = n_points
+#         ###
         
-        A_icdf[:, idx] = icdf / n_points  # add normalization to [0, 1] instead of number of pixels
+#         A_icdf[:, idx] = icdf / n_points  # add normalization to [0, 1] instead of number of pixels
         
-    return A_icdf
+#     return A_icdf
     
 
-def smooth_cdf(cdfs, w=10, B=200, voxel_size=1):
-    ### add option to renormalize each column
-    ### change this to apply to whole image stack
+# def smooth_cdf(cdfs, w=10, B=200, voxel_size=1):
+#     ### add option to renormalize each column
+#     ### change this to apply to whole image stack
     
-    cdfs_blur = np.zeros(cdfs.shape)
+#     cdfs_blur = np.zeros(cdfs.shape)
     
-    N = cdfs[0, :, 0].size + 2*w
-    spatial_frequency =  np.fft.fftshift(np.fft.fftfreq(N, voxel_size))
-    grid = np.meshgrid(spatial_frequency**2)[0]
-    G = np.exp(- grid * (B/4))
+#     N = cdfs[0, :, 0].size + 2*w
+#     spatial_frequency =  np.fft.fftshift(np.fft.fftfreq(N, voxel_size))
+#     grid = np.meshgrid(spatial_frequency**2)[0]
+#     G = np.exp(- grid * (B/4))
     
-    for idx, cdf in enumerate(cdfs):
+#     for idx, cdf in enumerate(cdfs):
         
-        cdf_pad = np.pad(cdf, pad_width=((w, w), (0, 0)), mode='constant', constant_values=(0, 1))
-        F = np.fft.fftshift(np.fft.fft(cdf_pad, axis=0), axes=0)
-        F_conv = F * G[:, np.newaxis]
-        cdf_blur = np.fft.ifft(np.fft.ifftshift(F_conv, axes=0), axis=0).real
-        cdf_blur = cdf_blur[w:-w, :]
-        cdfs_blur[idx] = cdf_blur
+#         cdf_pad = np.pad(cdf, pad_width=((w, w), (0, 0)), mode='constant', constant_values=(0, 1))
+#         F = np.fft.fftshift(np.fft.fft(cdf_pad, axis=0), axes=0)
+#         F_conv = F * G[:, np.newaxis]
+#         cdf_blur = np.fft.ifft(np.fft.ifftshift(F_conv, axes=0), axis=0).real
+#         cdf_blur = cdf_blur[w:-w, :]
+#         cdfs_blur[idx] = cdf_blur
         
-    return cdfs_blur
+#     return cdfs_blur
 
     
 ##### add these functions for testing

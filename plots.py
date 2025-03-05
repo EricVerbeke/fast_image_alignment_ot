@@ -81,7 +81,7 @@ def rectangular_tile_plot(images, rows, cols, spine_colors, spine_size=1, size_x
     plt.tight_layout(h_pad=hpad, w_pad=wpad)
     
     if save_path:
-        plt.savefig(save_path)
+        plt.savefig(save_path, transparent=True)
     if show:
         plt.show()
 

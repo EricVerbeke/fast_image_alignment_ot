@@ -1,5 +1,6 @@
 import gzip
 import numpy as np
+
 from scipy import ndimage as ndi
 
 
@@ -20,7 +21,7 @@ def generate_centered_gaussian(L=128, d=2, sigma=1):
 def signal_convolution(f, g):
     """convolve image f with g, both real LxL arrays"""
 
-    ### doesn't account for circular convolution
+    ### note: doesn't account for circular convolution
     
     g_hat = np.fft.fftshift(np.fft.fftn(g))
     f_hat = np.fft.fftshift(np.fft.fftn(f))
@@ -75,7 +76,7 @@ def zero_pad_image_stack_to_size(image_stack, size):
 
     if len(image_stack.shape) == 2:
         image_stack = image_stack[np.newaxis, ...]
-
+        
     N, ny, nx = image_stack.shape
 
     d = size - ny
@@ -98,28 +99,39 @@ def zero_pad_image_stack_to_size(image_stack, size):
     return image_stack
 
 
-# def fourier_pad_image_stack(imgs, p=2):
-#     shape = imgs.shape
-#     l = shape[1] * p
-#     imgs_ft = np.fft.fftshift(np.fft.fft2(imgs))
-#     imgs_ft_pad = zero_pad_image_stack_to_size(imgs_ft, l)
-#     imgs_pad = np.fft.ifft2(np.fft.ifftshift(imgs_ft_pad)).real
-
-#     return imgs_pad
-
-
-def distance_matrix_from_dict(dists_dict, n_images):
+def random_points_in_sphere_voxelized(L, D, n):
+    """Generate n random points uniformly distributed inside a sphere of given radius"""
     
-    dist_mat = np.zeros((n_images, n_images))
+    V = np.zeros((L, L, L))
+    radius = D / L
     
-    for key, dist in dists_dict.items():
-        
-        idx1, idx2 = key
-        dist_min = np.amin(dist)
-        dist_mat[idx1, idx2] = dist_min
-        dist_mat[idx2, idx1] = dist_min
-        
-    return dist_mat
+    phi = np.random.uniform(0, 2 * np.pi, n)   # azimuthal angle
+    costheta = np.random.uniform(-1, 1, n)     # cosine of polar angle
+    u = np.random.uniform(0, 1, n)             # random variable for radius
+
+    theta = np.arccos(costheta)                # convert to polar angle
+    r = radius * (u ** (1/3))                  # cube root to maintain uniformity
+
+    x = r * np.sin(theta) * np.cos(phi)
+    y = r * np.sin(theta) * np.sin(phi)
+    z = r * np.cos(theta)
+
+    points = np.column_stack((x, y, z))
+    voxels = (np.round((points * L//2)) + L//2).astype('int')  # nearest neighbor interpolation
+    V[tuple(voxels.T)] = 1
+    
+    return V
+
+
+def generate_projections(V, angles, axis=0):
+    """"Function to generate 2D projection images"""
+    
+    projections = []
+    for angle in angles:
+        rotated_V = ndi.rotate(V, angle, axes=(0, 2), reshape=False, mode='nearest')
+        projection = np.sum(rotated_V, axis=axis)  # Sum along the chosen axis
+        projections.append(projection)
+    return np.array(projections)
 
 
 def load_mnist_images(image_file):
@@ -142,3 +154,27 @@ def load_mnist_labels(label_file):
         labels = np.frombuffer(label_data, dtype=np.uint8)
         
         return labels
+
+
+# def fourier_pad_image_stack(imgs, p=2):
+#     shape = imgs.shape
+#     l = shape[1] * p
+#     imgs_ft = np.fft.fftshift(np.fft.fft2(imgs))
+#     imgs_ft_pad = zero_pad_image_stack_to_size(imgs_ft, l)
+#     imgs_pad = np.fft.ifft2(np.fft.ifftshift(imgs_ft_pad)).real
+
+#     return imgs_pad
+
+
+# def distance_matrix_from_dict(dists_dict, n_images):
+    
+#     dist_mat = np.zeros((n_images, n_images))
+    
+#     for key, dist in dists_dict.items():
+        
+#         idx1, idx2 = key
+#         dist_min = np.amin(dist)
+#         dist_mat[idx1, idx2] = dist_min
+#         dist_mat[idx2, idx1] = dist_min
+        
+#     return dist_mat

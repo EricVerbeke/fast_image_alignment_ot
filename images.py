@@ -1,4 +1,6 @@
 import numpy as np
+
+### my lib
 import utils
 
 
@@ -10,7 +12,7 @@ class Image:
         
         TODO:
         - add Fourier scaling / cropping
-        - move zero padding from utils to here
+        - control image dtype
         """
         self.images = images
         self.shape = images.shape
@@ -44,7 +46,7 @@ class Image:
         """normalize to unit mass"""
         
         scale = np.sum(self.images, axis=(1,2))
-        images_norm = self.images / scale.reshape(self.N, 1, 1)        
+        images_norm = self.images / scale.reshape(self.N, 1, 1)  
         
         return images_norm
     

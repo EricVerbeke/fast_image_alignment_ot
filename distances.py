@@ -1,18 +1,15 @@
 import numpy as np
 
-import ftk  
+# import ftk  
 import pywt 
 import ot 
 
 ### my lib
-
 import utils
-import transforms
 
 
 def rotational_distances(U, V):
-    ### fast compute ||U - T_l V||^2_F for all shifts of V
-    ### EV: need to add normalizing constant
+    """fast compute ||U - T_l V||^2_F for all shifts of V"""
     
     U_norm = np.linalg.norm(U)**2
     V_norm = np.linalg.norm(V)**2
@@ -68,7 +65,7 @@ def slow_signed_sliced_rotational_distances(Up, Vp, Un, Vn, n_theta):
 
 def l2_distance(U, V):
     
-    return np.linalg.norm(U - V)**2
+    return np.linalg.norm(U - V)
 
 
 def sliced_distance(U, V):
@@ -207,6 +204,7 @@ def compute_transport_matrix(image, metric='sqeuclidean'):
     xgrid, ygrid = np.meshgrid(xs, xs)
     points = np.array(list(zip(ygrid.flatten(), xgrid.flatten())))  # order matches flatten convention
     M = ot.dist(points, points, metric=metric)  # returns the 2-norm squared, change metric='euclidean' for w1    
+    M = M / np.amax(M)  
     
     return M
 
@@ -221,12 +219,12 @@ def wasserstein_distance(image1, image2, M, numItermax=100000):
     image2_flat = np.where(image2_flat < 0, 0, image2_flat)
     image2_flat = image2_flat / np.sum(image2_flat)
     
-    dist = ot.emd2(image1_flat, image2_flat, M, numItermax)  # EV: add numItermax?
+    dist = ot.emd2(image1_flat, image2_flat, M, numItermax)
 
     return dist
 
 
-def rotational_wasserstein_distances(image1, image2, angles, M):
+def rotational_wasserstein_distances(image1, image2, M, angles):
         
     dists = []
     image1_flat = image1.flatten()
@@ -243,7 +241,6 @@ def rotational_wasserstein_distances(image1, image2, angles, M):
 
 
 def rotational_sinkhorn_distances(image1, image2, angles, M, reg=10, numItermax=3):
-    ### EV: can probably combine this with Wasserstein
         
     dists = []
     image1 = np.where(image1<1e-5, 1e-5, image1)  # sinkhorn seems to break with zeros
@@ -259,60 +256,6 @@ def rotational_sinkhorn_distances(image1, image2, angles, M, reg=10, numItermax=
         dists.append(ot.sinkhorn2(image1_flat, image2_flat, M, reg=reg, numItermax=numItermax, method='sinkhorn'))
 
     return np.array(dists)
-
-
-def ftk_precompute(reference, images, n_psi, B):
-    
-    L = reference.shape[0]
-    n_images = images.shape[0]
-    
-    T = 2
-    N = L
-    ftk_eps = 1e-2
-    
-    delta_range = 1*B
-    oversampling = 1  # what should this parameter be???
-    
-    rmax = N / 2*np.pi
-    ngridr = 3*N
-    
-    # the following four lines of code perform the necessary precompution for the fourier grids
-    pf_grid = ftk.make_tensor_grid(rmax, ngridr, n_psi) # grid for polar fourier transform
-    tr_grid = ftk.make_adaptive_grid(delta_range, T/N, oversampling) # grid for shift
-    n_bessel = int(np.ceil(delta_range))
-    plan = ftk.ftk_plan(tr_grid, pf_grid, n_bessel, ftk_eps)
-    
-    # the following code computes the polar fourier transforms of the images 
-    Shat = ftk.cartesian_to_pft(images, T, pf_grid)
-    Mhat = ftk.cartesian_to_pft(reference.reshape((1,L,L)), T, pf_grid)
-    
-    prods_ftk, tm_ftk = ftk.ftk_execute(plan, Mhat, Shat)
-    
-    ftk_parameters = [n_images, prods_ftk, pf_grid, n_psi, tr_grid]
-    
-    return ftk_parameters
-    
-
-def ftk_align(reference, images, n_psi, B):
-    
-    ftk_parameters = ftk_precompute(reference, images, n_psi, B)
-    n_images = ftk_parameters[0]
-    prods_ftk = ftk_parameters[1]
-    pf_grid = ftk_parameters[2]
-    n_psi = ftk_parameters[3]
-    tr_grid = ftk_parameters[4]
-    
-    corr=np.zeros(n_images)  # the maximum correlation found (theoretical maximum should be 1)
-    angle_rec=np.zeros(n_images)  # the in-plane rotation angle recovered
-    shift_rec=np.zeros((n_images,2))  # the shift recovered
-    
-    for idx in range(n_images):      
-        index=np.unravel_index(prods_ftk[0,idx,:,:].argmax(), prods_ftk[0,idx,:,:].shape)
-        corr[idx]=prods_ftk[0,idx,:,:].max()
-        angle_rec[idx]=pf_grid['all_psi'][:n_psi][index[0]]*180/np.pi 
-        shift_rec[idx]=tr_grid['trans'][index[1]]
-    
-    return corr, angle_rec, shift_rec
 
 
 def embed(arr, wavelet, level):
@@ -348,6 +291,14 @@ def embed(arr, wavelet, level):
     return np.concatenate(weighted_coefs)
 
 
+def wemd_distance(image1, image2, wavelet='sym3', level=3):
+
+    w1 = embed(image1, wavelet, level)
+    w2 = embed(image2, wavelet, level)
+
+    return np.linalg.norm(w1 - w2, ord=1)
+
+
 def wemd_rotational_distances(image1, image2, angles, wavelet='sym3', level=3):
         
     dists = []
@@ -361,3 +312,56 @@ def wemd_rotational_distances(image1, image2, angles, wavelet='sym3', level=3):
         
     return np.array(dists)
 
+
+# def ftk_precompute(reference, images, n_psi, B):
+    
+#     L = reference.shape[0]
+#     n_images = images.shape[0]
+    
+#     T = 2
+#     N = L
+#     ftk_eps = 1e-2
+    
+#     delta_range = 1*B
+#     oversampling = 1  # what should this parameter be???
+    
+#     rmax = N / 2*np.pi
+#     ngridr = 3*N
+    
+#     # the following four lines of code perform the necessary precompution for the fourier grids
+#     pf_grid = ftk.make_tensor_grid(rmax, ngridr, n_psi) # grid for polar fourier transform
+#     tr_grid = ftk.make_adaptive_grid(delta_range, T/N, oversampling) # grid for shift
+#     n_bessel = int(np.ceil(delta_range))
+#     plan = ftk.ftk_plan(tr_grid, pf_grid, n_bessel, ftk_eps)
+    
+#     # the following code computes the polar fourier transforms of the images 
+#     Shat = ftk.cartesian_to_pft(images, T, pf_grid)
+#     Mhat = ftk.cartesian_to_pft(reference.reshape((1,L,L)), T, pf_grid)
+    
+#     prods_ftk, tm_ftk = ftk.ftk_execute(plan, Mhat, Shat)
+    
+#     ftk_parameters = [n_images, prods_ftk, pf_grid, n_psi, tr_grid]
+    
+#     return ftk_parameters
+    
+
+# def ftk_align(reference, images, n_psi, B):
+    
+#     ftk_parameters = ftk_precompute(reference, images, n_psi, B)
+#     n_images = ftk_parameters[0]
+#     prods_ftk = ftk_parameters[1]
+#     pf_grid = ftk_parameters[2]
+#     n_psi = ftk_parameters[3]
+#     tr_grid = ftk_parameters[4]
+    
+#     corr=np.zeros(n_images)  # the maximum correlation found (theoretical maximum should be 1)
+#     angle_rec=np.zeros(n_images)  # the in-plane rotation angle recovered
+#     shift_rec=np.zeros((n_images,2))  # the shift recovered
+    
+#     for idx in range(n_images):      
+#         index=np.unravel_index(prods_ftk[0,idx,:,:].argmax(), prods_ftk[0,idx,:,:].shape)
+#         corr[idx]=prods_ftk[0,idx,:,:].max()
+#         angle_rec[idx]=pf_grid['all_psi'][:n_psi][index[0]]*180/np.pi 
+#         shift_rec[idx]=tr_grid['trans'][index[1]]
+    
+#     return corr, angle_rec, shift_rec
