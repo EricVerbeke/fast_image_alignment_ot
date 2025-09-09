@@ -2,19 +2,21 @@
 
 ![My Image](Examples/demo.png)
 
-We present a fast algorithm for computing the sliced 2-Wasserstein distance between two images. This can be used for the rotational alignment of two $$L \times L$$ images in $$O(L^2 \log L)$$ operations. Our algorithm is shown to be robust to rotations, translations and deformations in the images.
+We develop a fast algorithm for computing the sliced 2-Wasserstein distance between two images. Additionally, this can be used for the rotational alignment of two $$L \times L$$ images in $$O(L^2 \log L)$$ operations. Our algorithm is shown to be robust to rotations, translations and deformations in the images.
 
 See https://doi.org/10.48550/arXiv.2503.13756 for more details about the algorithm. 
-
-### Tutorial on how to use the code will follow soon
 
 Dependencies:
 - numpy
 - matplotlib
 - scipy
 - finufft
-- pywavelets (optional)
-- pot (optional)
+
+Additional dependencies (for other OT distances):
+- pywavelets
+- pot
+- jax
+- ott-jax
 
 ---
 Please contact ev9102[at]princeton.edu with any questions.
