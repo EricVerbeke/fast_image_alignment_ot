@@ -1,195 +1,35 @@
+### standard libraries
 import numpy as np
 
-# import ftk  
+### OT libraries
 import pywt 
 import ot 
 
-### my lib
-import utils
+import jax
+import jax.numpy as jnp
 
+from ott.geometry import costs, grid, pointcloud
+from ott.problems.linear import linear_problem
+from ott.solvers.linear import sinkhorn
 
-def rotational_distances(U, V):
-    """fast compute ||U - T_l V||^2_F for all shifts of V"""
-    
-    U_norm = np.linalg.norm(U)**2
-    V_norm = np.linalg.norm(V)**2
+# ### other libraries
+# import ftk  
 
-    C = np.zeros(V.shape).astype(V.dtype)
-    C[:, 0] = V[:, 0]
-    C[:, 1:] = np.flip(V[:, 1:], axis=1)
-
-    Uj_hat = np.fft.fft(U, axis=1)
-    Cj_hat = np.fft.fft(C, axis=1)
-
-    UV_l = np.fft.ifft(Uj_hat * Cj_hat, axis=1).real
-    UV_l_sum = np.sum(UV_l, axis=0)
-
-    dists = U_norm + V_norm - 2*UV_l_sum
-    
-    return dists
-
-
-def signed_rotational_distances(Up, Vp, Un, Vn):
-    
-    dists_pos = rotational_distances(Up, Vp)
-    dists_neg = rotational_distances(Un, Vn)
-    
-    dists = (dists_pos + dists_neg) / 2
-        
-    return dists
-
-
-def slow_sliced_rotational_distances(U, V, n_theta):
-    
-    dists = np.zeros(n_theta)
-
-    for l in range(n_theta):
-
-        d_w2 = np.mean((U - utils.translate(V, 0, l))**2, axis=0)
-        d_sw2 = np.sqrt(np.mean(d_w2))
-
-        dists[l] = d_sw2
-        
-    return dists
-
-
-def slow_signed_sliced_rotational_distances(Up, Vp, Un, Vn, n_theta):
-            
-    d_sw2_p = slow_sliced_wasserstein_rotation(Up, Vp, n_theta)
-    d_sw2_n = slow_sliced_wasserstein_rotation(Un, Vn, n_theta)
-
-    dists = (d_sw2_p + d_sw2_n) / 2
-
-    return dists
-
-
-def l2_distance(U, V):
-    
-    return np.linalg.norm(U - V)
-
-
-def sliced_distance(U, V):
-    
-    d_w2 = np.mean((U - V)**2, axis=0)
-    d_sw2 = np.sqrt(np.mean(d_w2))
-    
-    return d_sw2
-
-
-def signed_sliced_distance(Up, Vp, Un, Vn):
-    
-    d_sw2_p = sliced_distance(Up, Vp)
-    d_sw2_n = sliced_distance(Un, Vn)
-    
-    d_sw2 = (d_sw2_p + d_sw2_n) / 2
-    
-    return d_sw2
-
-
-def max_sliced_distance(U, V):
-    
-    d = np.mean((U - V)**2, axis=0)
-    d_max = np.sqrt(np.amax(d))
-    
-    return d_max
-
-
-def rotational_max_sliced_wasserstein(U, V, n_theta):
-        
-    return np.array([max_sliced_distance(U, utils.translate(V, 0, l)) for l in range(n_theta)])
-
-
-def reference_rotational_max_sliced_wasserstein(U, V, n_theta, N):
-
-    return {idx: rotational_max_sliced_wasserstein(U, V[idx], n_theta) for idx in range(N)}
-
-            
-def reference_rotational_distances(reference, images):
-    
-    N = images.shape[0]
-    dists_dict = {}
-    
-    for i in range(N):
-        dists_dict[i] = rotational_distances(reference, images[i])
-        
-    return dists_dict
-    
-    
-def reference_signed_rotational_distances(ref_pos, images_pos, ref_neg, images_neg):
-    
-    N = images_pos.shape[0]
-    dists_dict = {}
-    
-    for i in range(N):
-        dists_dict[i] = signed_rotational_distances(ref_pos, images_pos[i], ref_neg, images_neg[i])
-        
-    return dists_dict
-
-   
-def pairwise_rotational_distances(images, n_points):
-    
-    N = images.shape[0]
-    dists_dict = {}
-    
-    for i in range(N):
-        for j in range(i+1, N):
-            dists_dict[(i, j)] = rotational_distances(images[i], images[j], n_points)
-            
-    return dists_dict
-
-
-def pairwise_signed_rotational_distances(images_pos, images_neg):
-    
-    N = images_pos.shape[0]
-    dists_dict = {}
-    
-    for i in range(N):
-        for j in range(i+1, N):
-            dists_dict[(i, j)] = signed_rotational_distances(images_pos[i], images_pos[j], images_neg[i], images_neg[j])
-            
-    return dists_dict
-
-
-def real_space_rotational_distances(image1, image2, angles):
-    
-    dists = []
-    
-    for a in angles:
-        image2_rot = utils.rotate(image2, -a)  # rotate clockwise as hack for now
-        dists.append(np.linalg.norm(image1 - image2_rot)**2)  # squared-norm to match fast conv
-        
-    return np.array(dists)
-
-
-def real_space_rotational_distance_pairwise(images, angles):
-    
-    N = images.shape[0]
-    dists_dict = {}
-    
-    for i in range(N):
-        for j in range(i+1, N):
-            dists_dict[(i, j)] = real_space_rotational_distance(images[i], images[j], angles)
-            
-    return dists_dict
-
-
-def fast_translational_distances(image1, image2):
-    ### does not zero pad (i.e. circular translation allowed)
-    ### vectorize this to multiple images
-    
-    image1_ft = np.fft.fft2(image1)
-    image2_ft = np.fft.fft2(image2)
-
-    corr = np.fft.ifft2(np.conj(image1_ft) * image2_ft)
-    ty, tx = np.unravel_index(np.argmax(corr), corr.shape)
-    
-    return ty, tx
+### my libraries
+from fast_image_align_ot import utils
 
 
 #################################################
 #####            OTHER DISTANCES            #####
-#####            POT / FTK / WEMD           #####
+#####          W2 / SD / CW / WEMD          #####
 #################################################
+
+### Compute various transport distances between images
+
+### (W2): 2-Wasserstein
+### (SD): Sinkhorn distance
+### (CW): Convolutional Wasserstein distance
+### (WEMD): wavelet Earth mover's distance
 
 
 def compute_transport_matrix(image, metric='sqeuclidean'):
@@ -212,48 +52,127 @@ def compute_transport_matrix(image, metric='sqeuclidean'):
 def wasserstein_distance(image1, image2, M, numItermax=100000):
         
     image1_flat = image1.flatten()
-    image1_flat = np.where(image1_flat < 0, 0, image1_flat)
-    image1_flat = image1_flat / np.sum(image1_flat)
+    image1_flat = np.where(image1_flat<0, 0, image1_flat)
+    image1_flat *= 1.0 / image1_flat.sum()
     
     image2_flat = image2.flatten()
-    image2_flat = np.where(image2_flat < 0, 0, image2_flat)
-    image2_flat = image2_flat / np.sum(image2_flat)
+    image2_flat = np.where(image2_flat<0, 0, image2_flat)
+    image2_flat *= 1.0 / image2_flat.sum()
     
-    dist = ot.emd2(image1_flat, image2_flat, M, numItermax)
+    dist = ot.emd2(image1_flat, image2_flat, M, numItermax=numItermax)
 
     return dist
 
 
-def rotational_wasserstein_distances(image1, image2, M, angles):
+def rotational_wasserstein_distances(image1, image2, M, angles, numItermax=100000):
         
     dists = []
+    
+    image1 = np.where(image1<=0, 0, image1)
+    image1 *= 1.0 / image1.sum()
     image1_flat = image1.flatten()
 
     for a in angles:
         image2_rot = utils.rotate(image2, -a)
         image2_rot = np.where(image2_rot<0, 0, image2_rot)
-        image2_rot = image2_rot / np.sum(image2_rot)  # normalize images back to one
+        image2_rot *= 1.0 / image2_rot.sum()  # normalize images back to one
         image2_flat = image2_rot.flatten()
 
-        dists.append(ot.emd2(image1_flat, image2_flat, M))  # EV: add numItermax?
+        dists.append(ot.emd2(image1_flat, image2_flat, M, numItermax=numItermax))  # EV: add numItermax?
 
     return np.array(dists)
 
 
-def rotational_sinkhorn_distances(image1, image2, angles, M, reg=10, numItermax=3):
+def sinkhorn_distance(image1, image2, M, reg=0.01, numItermax=3):
+
+    epsilon_mass = 1e-10
+
+    image1 = np.where(image1<=0, epsilon_mass, image1)
+    image1 *= 1.0 / image1.sum()
+    image1_flat = image1.flatten()
+
+    image2 = np.where(image2<=0, epsilon_mass, image2)
+    image2 *= 1.0 / image2.sum()
+    image2_flat = image2.flatten()
+
+    dist = ot.sinkhorn2(image1_flat, image2_flat, M, reg=reg, numItermax=numItermax)
+
+    return dist
+
+
+def rotational_sinkhorn_distances(image1, image2, M, angles, reg=0.01, numItermax=3):
+
+    epsilon_mass = 1e-10 # add small mass to avoid zeros
         
     dists = []
-    image1 = np.where(image1<1e-5, 1e-5, image1)  # sinkhorn seems to break with zeros
-    image1 = image1 / np.sum(image1)
+     
+    image1 = np.where(image1<=0, epsilon_mass, image1)
+    image1 *= 1.0 / image1.sum()
     image1_flat = image1.flatten()
 
     for a in angles:
         image2_rot = utils.rotate(image2, -a)
-        image2_rot = np.where(image2_rot<1e-5, 1e-5, image2_rot)  # catch negative values from interpolation
-        image2_rot = image2_rot / np.sum(image2_rot)  # normalize images back to one
+        image2_rot = np.where(image2_rot<=0, epsilon_mass, image2_rot)  # catch negative values from interpolation
+        image2_rot *= 1.0 / image2_rot.sum()  # normalize images back to one
         image2_flat = image2_rot.flatten()
 
-        dists.append(ot.sinkhorn2(image1_flat, image2_flat, M, reg=reg, numItermax=numItermax, method='sinkhorn'))
+        dists.append(ot.sinkhorn2(image1_flat, image2_flat, M, reg=reg, numItermax=numItermax))
+
+    return np.array(dists)
+
+
+def convolutional_wasserstein_distance(image1, image2, epsilon=0.01, max_iterations=3):
+
+    epsilon_mass = 1e-10
+
+    grid_size = image1.shape
+    geom = grid.Grid(grid_size=grid_size, epsilon=epsilon)
+
+    image1_flat = image1.flatten()
+    image1_flat = np.where(image1_flat<=0, epsilon_mass, image1_flat)
+    image1_flat *= 1.0 / image1_flat.sum()
+    image1_flat += epsilon_mass ### EV: this seems to prevent error
+    
+    image2_flat = image2.flatten()
+    image2_flat = np.where(image2_flat<=0, epsilon_mass, image2_flat)
+    image2_flat *= 1.0 / image2_flat.sum()
+    image2_flat += epsilon_mass ### EV: this seems to prevent error
+
+    prob = linear_problem.LinearProblem(geom, a=image1_flat, b=image2_flat)
+    solver = sinkhorn.Sinkhorn(max_iterations=max_iterations)
+    out = solver(prob)
+
+    dist = out.reg_ot_cost
+    
+    return dist
+
+
+def rotational_convolutional_wasserstein_distance(image1, image2, angles, epsilon=0.01, max_iterations=3):
+
+    dists = []
+
+    epsilon_mass = 1e-10
+
+    grid_size = image1.shape
+    geom = grid.Grid(grid_size=grid_size, epsilon=epsilon)
+    solver = sinkhorn.Sinkhorn(max_iterations=max_iterations)
+
+    image1_flat = image1.flatten()
+    image1_flat = np.where(image1_flat<=0, epsilon_mass, image1_flat)
+    image1_flat *= 1.0 / image1_flat.sum()
+    image1_flat += epsilon_mass ### EV: this seems to prevent error    
+
+    for a in angles:
+        image2_rot = utils.rotate(image2, -a)
+        image2_rot = np.where(image2_rot<=0, epsilon_mass, image2_rot)
+        image2_rot *= 1.0 / image2_rot.sum()  # normalize images back to one
+        image2_flat = image2_rot.flatten()
+        image2_flat += epsilon_mass
+
+        prob = linear_problem.LinearProblem(geom, a=image1_flat, b=image2_flat)
+        out = solver(prob)
+
+        dists.append(out.reg_ot_cost)
 
     return np.array(dists)
 
@@ -311,6 +230,50 @@ def wemd_rotational_distances(image1, image2, angles, wavelet='sym3', level=3):
         dists.append(np.linalg.norm(w1 - w2, ord=1))
         
     return np.array(dists)
+
+
+
+# def wasserstein_distance(image1, image2, M, numItermax=100):
+
+#     epsilon_mass = 1e-10
+        
+#     image1_flat = image1.flatten()
+#     image1_flat = np.where(image1_flat<=0, epsilon_mass, image1_flat)
+#     image1_flat *= 1.0 / image1_flat.sum()
+    
+#     image2_flat = image2.flatten()
+#     image2_flat = np.where(image2_flat<=0, epsilon_mass, image2_flat)
+#     image2_flat *= 1.0 / image2_flat.sum()
+    
+#     dist = ot.emd2(image1_flat, image2_flat, M, numItermax)
+
+#     return dist
+
+
+# def rotational_wasserstein_distances(image1, image2, M, angles, numItermax=100000):
+        
+#     dists = []
+    
+#     epsilon_mass = 1e-8   # add small mass to avoid zeros
+    
+#     image1 = image1 + epsilon_mass
+#     image1 *= 1.0 / image1.sum()
+#     image1_flat = image1.flatten()
+
+#     for a in angles:
+#         image2_rot = utils.rotate(image2, -a)
+#         image2_rot = np.where(image2_rot<=0, epsilon_mass, image2_rot)
+#         image2_rot *= 1.0 / image2_rot.sum()   # normalize images back to one
+#         image2_flat = image2_rot.flatten()
+
+#         dists.append(ot.emd2(image1_flat, image2_flat, M, numItermax))  # EV: add numItermax?
+
+#     return np.array(dists)
+
+
+
+
+### FTK ###
 
 
 # def ftk_precompute(reference, images, n_psi, B):

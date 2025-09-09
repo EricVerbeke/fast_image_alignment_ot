@@ -1,7 +1,7 @@
 import numpy as np
 
 ### my lib
-import utils
+from fast_image_align_ot import utils
 
 
 class Image:
@@ -74,6 +74,8 @@ class Image:
    
     
     def _add_white_gaussian_noise(self):
+
+        ### EV: need to fix issue w/ shape for adding noise to one image
         
         signal = np.sum(self.images**2, axis=(1,2))
         noise_var = signal / (self.snr * self.ny * self.nx)
@@ -81,7 +83,8 @@ class Image:
 
         additive_noise = np.random.normal(0, noise_std, (self.shape))
         images_noise = self.images + additive_noise
-    
+        # images_noise = np.clip(images_noise, 0, 1) ### EV: only keep the positive part? set clip bounds?
+
         return images_noise
     
     
@@ -91,7 +94,9 @@ class Image:
         #     self.images = self.fourier_scale_images()
             
         if self.add_noise:
+            self.images = self.normalize_images()
             self.images = self._add_white_gaussian_noise()
+            ### need to split images first???
         
         if self.mask:
             self.images = self.apply_mask()

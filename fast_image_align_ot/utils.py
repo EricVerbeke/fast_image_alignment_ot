@@ -81,7 +81,7 @@ def zero_pad_image_stack_to_size(image_stack, size):
 
     d = size - ny
 
-    assert d > 0, 'new size is smaller than original'
+    assert d > 0, 'new size is smaller than or same as original'
 
     if d % 2 == 0:
         w = (size - ny) // 2
