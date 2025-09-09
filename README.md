@@ -1,6 +1,6 @@
 ## Fast alignment of heterogeneous images in sliced Wasserstein distance
 
-![My Image](Figures/demo.png)
+![My Image](Examples/demo.png)
 
 We present a fast algorithm for computing the sliced 2-Wasserstein distance between two images. This can be used for the rotational alignment of two $$L \times L$$ images in $$O(L^2 \log L)$$ operations. Our algorithm is shown to be robust to rotations, translations and deformations in the images.
 
